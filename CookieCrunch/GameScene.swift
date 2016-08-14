@@ -10,80 +10,156 @@ import SpriteKit
 import GameplayKit
 
 class GameScene: SKScene {
+    var level: Level!
     
-    private var label : SKLabelNode?
-    private var spinnyNode : SKShapeNode?
+    let TileWidth: CGFloat = 32.0
+    let TileHeight: CGFloat = 36.0
     
-    override func didMove(to view: SKView) {
+    let gameLayer = SKNode()
+    let cookiesLayer = SKNode()
+    
+    let tilesLayer = SKNode()
+    
+    private var swipeFromColumn: Int?
+    private var swipeFromRow: Int?
+    
+    required init?(coder aDecoder: NSCoder) {
+        fatalError("init(coder) is not used in this app")
+    }
+    
+    override init(size: CGSize) {
+        super.init(size: size)
         
-        // Get label node from scene and store it for use later
-        self.label = self.childNode(withName: "//helloLabel") as? SKLabelNode
-        if let label = self.label {
-            label.alpha = 0.0
-            label.run(SKAction.fadeIn(withDuration: 2.0))
+        anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        
+        let background = SKSpriteNode(imageNamed: "Background")
+        background.size = size
+        addChild(background)
+        
+        addChild(gameLayer)
+        
+        let layerPosition = CGPoint(x: -TileWidth * CGFloat(NumColumns) / 2,
+                                    y: -TileHeight * CGFloat(NumRows) / 2)
+        
+        tilesLayer.position = layerPosition
+        gameLayer.addChild(tilesLayer)
+        
+        cookiesLayer.position = layerPosition
+        gameLayer.addChild(cookiesLayer)
+        
+        swipeFromColumn = nil
+        swipeFromRow = nil
+        
+    }
+    
+    func addSpritesForCookies(cookies: Set<Cookie>) {
+        for cookie in cookies {
+            let sprite = SKSpriteNode(imageNamed: cookie.cookieType.spriteName)
+            sprite.size = CGSize(width: TileWidth, height: TileHeight)
+            sprite.position = pointForColumn(column: cookie.column, row: cookie.row)
+            cookiesLayer.addChild(sprite)
+            cookie.sprite = sprite
         }
+    }
+    
+    func pointForColumn(column: Int, row: Int) -> CGPoint {
+        return CGPoint(x: CGFloat(column)*TileWidth + TileWidth/2,
+                       y: CGFloat(row)*TileHeight + TileHeight/2)
+    }
+    
+    func convertPoint(point: CGPoint) -> (success: Bool, column: Int, row: Int) {
+        if point.x >= 0 && point.x < CGFloat(NumColumns)*TileWidth && point.y >= 0 && point.y < CGFloat(NumRows)*TileHeight {
+            return (true, Int(point.x / TileWidth), Int(point.y / TileHeight))
+        } else {
+            return (false, 0, 0) // invalid location
+        }
+    }
+    
+    func addTiles() {
+        for row in 0..<NumRows {
+            for column in 0..<NumColumns {
+                if level.tileAtColumn(column: column, row: row) != nil{
+                    let tileNode = SKSpriteNode(imageNamed: "Tile")
+                    tileNode.size = CGSize(width: TileWidth, height: TileHeight)
+                    tileNode.position = pointForColumn(column: column, row: row)
+                    tilesLayer.addChild(tileNode)
+                }
+            }
+        }
+    }
+    
+    override func touchesBegan(touches: Set<UITouch>, withEvent event: UIEvent?) {
+        // 1
+        guard let touch = touches.first else { return }
+        let location = touch.location(in: cookiesLayer)
+        // 2
+        let (success, column, row) = convertPoint(point: location)
+        if success {
+            // 3
+            if let cookie = level.cookieAtColumn(column: column, row: row) {
+                // 4
+                swipeFromColumn = column
+                swipeFromRow = row
+            }
+        }
+    }
+    
+    override func touchesMoved(touches: Set<UITouch>, withEvent event: UIEvent?) {
+        // 1
+        guard swipeFromColumn != nil else { return }
         
-        // Create shape node to use during mouse interaction
-        let w = (self.size.width + self.size.height) * 0.05
-        self.spinnyNode = SKShapeNode.init(rectOf: CGSize.init(width: w, height: w), cornerRadius: w * 0.3)
+        // 2
+        guard let touch = touches.first else { return }
+        let location = touch.location(in: cookiesLayer)
         
-        if let spinnyNode = self.spinnyNode {
-            spinnyNode.lineWidth = 2.5
+        let (success, column, row) = convertPoint(location)
+        if success {
             
-            spinnyNode.run(SKAction.repeatForever(SKAction.rotate(byAngle: CGFloat(M_PI), duration: 1)))
-            spinnyNode.run(SKAction.sequence([SKAction.wait(forDuration: 0.5),
-                                              SKAction.fadeOut(withDuration: 0.5),
-                                              SKAction.removeFromParent()]))
+            // 3
+            var horzDelta = 0, vertDelta = 0
+            if column < swipeFromColumn! {          // swipe left
+                horzDelta = -1
+            } else if column > swipeFromColumn! {   // swipe right
+                horzDelta = 1
+            } else if row < swipeFromRow! {         // swipe down
+                vertDelta = -1
+            } else if row > swipeFromRow! {         // swipe up
+                vertDelta = 1
+            }
+            
+            // 4
+            if horzDelta != 0 || vertDelta != 0 {
+                trySwapHorizontal(horzDelta, vertical: vertDelta)
+                
+                // 5
+                swipeFromColumn = nil
+            }
         }
     }
     
-    
-    func touchDown(atPoint pos : CGPoint) {
-        if let n = self.spinnyNode?.copy() as! SKShapeNode? {
-            n.position = pos
-            n.strokeColor = SKColor.green
-            self.addChild(n)
+    func trySwapHorizontal(horzDelta: Int, vertical vertDelta: Int) {
+        // 1
+        let toColumn = swipeFromColumn! + horzDelta
+        let toRow = swipeFromRow! + vertDelta
+        // 2
+        guard toColumn >= 0 && toColumn < NumColumns else { return }
+        guard toRow >= 0 && toRow < NumRows else { return }
+        // 3
+        if let toCookie = level.cookieAtColumn(toColumn, row: toRow),
+            let fromCookie = level.cookieAtColumn(swipeFromColumn!, row: swipeFromRow!) {
+            // 4
+            print("*** swapping \(fromCookie) with \(toCookie)")
         }
     }
     
-    func touchMoved(toPoint pos : CGPoint) {
-        if let n = self.spinnyNode?.copy() as! SKShapeNode? {
-            n.position = pos
-            n.strokeColor = SKColor.blue
-            self.addChild(n)
+    override func touchesEnded(touches: Set<UITouch>, withEvent event: UIEvent?) {
+        swipeFromColumn = nil
+        swipeFromRow = nil
+    }
+    
+    override func touchesCancelled(touches: Set<UITouch>?, withEvent event: UIEvent?) {
+        if let touches = touches {
+            touchesEnded(touches, withEvent: event)
         }
-    }
-    
-    func touchUp(atPoint pos : CGPoint) {
-        if let n = self.spinnyNode?.copy() as! SKShapeNode? {
-            n.position = pos
-            n.strokeColor = SKColor.red
-            self.addChild(n)
-        }
-    }
-    
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        if let label = self.label {
-            label.run(SKAction.init(named: "Pulse")!, withKey: "fadeInOut")
-        }
-        
-        for t in touches { self.touchDown(atPoint: t.location(in: self)) }
-    }
-    
-    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        for t in touches { self.touchUp(atPoint: t.location(in: self)) }
-    }
-    
-    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        for t in touches { self.touchMoved(toPoint: t.location(in: self)) }
-    }
-    
-    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-        for t in touches { self.touchUp(atPoint: t.location(in: self)) }
-    }
-    
-    
-    override func update(_ currentTime: TimeInterval) {
-        // Called before each frame is rendered
     }
 }
